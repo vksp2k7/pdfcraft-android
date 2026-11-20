@@ -4894,7 +4894,7 @@ fn printed_pixels(bytes: Vec<u8>) -> (u32, u32, Vec<u8>) {
 }
 
 /// Validation belongs to viewer chrome, not to document artwork or export sources.
-fn assert_signature_artwork_survives_trust(mut cos: pdfcraft_cos::Document, expected_text: &[&str]) {
+fn assert_signature_artwork_survives_trust(mut cos: pdfcraft_cos::Document, expected_text: &[&str], redraw: bool) {
     let p12 = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../sign/tests/data/ec-p256.p12")).unwrap();
     let identity = sign::pkcs12::open(&p12, "test").unwrap();
     let anchor = identity.chain.first().cloned().unwrap_or_else(|| identity.certificate.clone());
@@ -4915,7 +4915,12 @@ fn assert_signature_artwork_survives_trust(mut cos: pdfcraft_cos::Document, expe
     session.set_trusted_certificates(vec![anchor.clone()]);
     let doc = session.get(id).unwrap();
     assert_eq!(doc.signatures[0].status, SignatureStatus::Valid);
-    assert!(doc.display == original_display, "trust must preserve all original appearance bytes");
+    if redraw {
+        assert!(doc.display != original_display, "trust must redraw the validated display appearance");
+        assert!(bytes_has(&doc.display, b"Signature valid"), "the display copy must show the validated caption");
+    } else {
+        assert!(Arc::ptr_eq(&doc.display, &doc.bytes), "unsupported artwork must remain unchanged");
+    }
     let mut exporter = export::Exporter::new(doc);
     assert_eq!(exporter.text_of(&[0]).unwrap(), original_text, "text exports retain signer details and baked caption");
     assert_eq!(exporter.png(0, 72.0).unwrap(), original_png, "image exports exclude the viewer overlay");
@@ -4958,7 +4963,7 @@ fn chamfered_signature_borders_survive_trust_exports_printing_and_save() {
             doc.update_dict(pdfcraft_cos::ObjRef::new(10, 0), |d| d.set(b"Resources", pdfcraft_cos::Object::Dict(resources))).unwrap();
             signature_layer_ops(&mut doc, 10, b"q 20 0 0 20 5 5 cm /im Do Q");
         }
-        assert_signature_artwork_survives_trust(doc, &["Not Verified"]);
+        assert_signature_artwork_survives_trust(doc, &["Not Verified"], false);
     }
 }
 
@@ -4966,7 +4971,7 @@ fn chamfered_signature_borders_survive_trust_exports_printing_and_save() {
 fn mixed_signature_caption_details_survive_trust_exports_printing_and_save() {
     let mut doc = pdfcraft_cos::Document::open(Arc::new(layered_signable_fixture())).unwrap();
     signature_layer_ops(&mut doc, 11, b"BT /F1 5 Tf 2 27 Td (Alice Signer) Tj 0 -3 Td (alice@example.org) Tj 0 -3 Td (Signature Not Verified) Tj ET");
-    assert_signature_artwork_survives_trust(doc, &["Alice Signer", "alice@example.org", "Not Verified"]);
+    assert_signature_artwork_survives_trust(doc, &["Alice Signer", "alice@example.org", "Not Verified"], false);
 }
 
 /// A real layered signature through `Session`: validity, original artwork,
@@ -4983,9 +4988,8 @@ fn check_layered_round_trip(signed: Arc<Vec<u8>>, password: Option<&str>, anchor
     s.set_trusted_certificates(vec![anchor.clone()]);
     let doc = s.get(vid).unwrap();
     assert_eq!(doc.signatures[0].status, SignatureStatus::Valid);
-    assert!(Arc::ptr_eq(&doc.display, &doc.bytes), "trust does not build a signature display copy");
-    assert!(bytes_has(&doc.display, b"Not Verified"));
-    assert!(!bytes_has(&doc.display, b"Signature valid"));
+    assert!(!Arc::ptr_eq(&doc.display, &doc.bytes), "trust builds a signature display copy");
+    assert!(bytes_has(&doc.display, b"Signature valid"));
     let mut renderer = pdfcraft_render::PageRenderer::new(doc.display.clone(), doc.config.clone());
     let rendered = renderer.render(pdfcraft_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
     assert!(rendered.error.is_none(), "{:?}", rendered.error);
@@ -5022,8 +5026,7 @@ fn a_metadata_edit_keeps_the_original_signature_appearance() {
     s.apply(vid, Edit::SetInfo { key: "Title".into(), value: "Contract".into() }).unwrap();
     let doc = s.get(vid).unwrap();
     assert_eq!(doc.signatures[0].status, SignatureStatus::Valid);
-    assert!(bytes_has(&doc.display, b"Not Verified"));
-    assert!(!bytes_has(&doc.display, b"Signature valid"));
+    assert!(bytes_has(&doc.display, b"Signature valid"));
 }
 
 /// An unchanged document never reaches the writer, so the edit is what makes this the
@@ -5076,7 +5079,7 @@ fn real_layered_signatures_round_trip_behind_a_user_password() {
     s.set_trusted_certificates(vec![anchor.clone()]);
     let doc = s.get(vid).unwrap();
     assert_eq!(doc.signatures[0].status, SignatureStatus::Valid);
-    assert!(Arc::ptr_eq(&doc.display, &doc.bytes), "encrypted signature artwork remains original");
+    assert!(!Arc::ptr_eq(&doc.display, &doc.bytes), "encrypted layered signatures get a display overlay");
     let saved = s.save_bytes(vid).unwrap();
     let mut t = Session::new().with_clock(|| 1_800_000_000);
     t.set_trusted_certificates(vec![anchor.clone()]);

@@ -24,6 +24,7 @@ use crate::pkcs12::DigitalId;
 use crate::x509::{Certificate, build_chain, build_chain_noted};
 
 mod changes;
+mod appearance;
 mod listing;
 mod signing;
 mod types;
@@ -33,6 +34,7 @@ mod validate;
 use changes::only_grew;
 #[cfg(test)]
 use listing::{DISCOVERY_CACHE_LIMIT, is_document_timestamp};
+pub use appearance::with_validated_appearances;
 pub use listing::{DigestCache, list, list_cached};
 pub(crate) use signing::fmt;
 pub use signing::{Appearance, AppearanceLabels, SignOptions, display_date, sign, sign_with_timestamp, timestamp_document};

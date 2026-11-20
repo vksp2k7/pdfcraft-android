@@ -643,14 +643,16 @@ pub(crate) fn is_placeholder_title(title: &str) -> bool {
     address || t == "untitled"
 }
 
-/// The working file plus appearances for comments that have none, and for form fields the file
-/// leaves to the viewer (#3470). Signature artwork is preserved; validation badges belong to the
-/// viewer and never enter these bytes, which image/text exports and Print as Image also consume.
-pub(crate) fn display_bytes(editor: Option<&mut Editor>, bytes: &Arc<Vec<u8>>) -> Arc<Vec<u8>> {
+/// The working file plus display-only appearances for comments, form fields, and validated
+/// layered signatures. The original signed bytes remain unchanged; exports and saves use them.
+pub(crate) fn display_bytes(editor: Option<&mut Editor>, bytes: &Arc<Vec<u8>>, signatures: &[SignatureInfo]) -> Arc<Vec<u8>> {
     let Some(e) = editor else { return bytes.clone() };
     let comments = pdfcraft_annot::with_missing_appearances_cached(&e.cos, &mut e.appearances);
-    let fields = pdfcraft_forms::with_field_appearances_cached(comments.as_ref().unwrap_or(&e.cos), &mut e.field_appearances);
-    let Some(display) = fields.or(comments) else {
+    let base = comments.as_ref().unwrap_or(&e.cos);
+    let signature = pdfcraft_sign::pdf::with_validated_appearances(base, signatures);
+    let fields_base = signature.as_ref().unwrap_or(base);
+    let fields = pdfcraft_forms::with_field_appearances_cached(fields_base, &mut e.field_appearances);
+    let Some(display) = fields.or(signature).or(comments) else {
         return bytes.clone();
     };
     match write_incremental(&display, &SaveOptions::default()) {

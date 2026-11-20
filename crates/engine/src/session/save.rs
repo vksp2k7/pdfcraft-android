@@ -244,10 +244,10 @@ impl Session {
         for doc in &mut self.docs {
             doc.trust = self.trust.clone();
             let Some(editor) = doc.editor.as_mut() else { continue };
-            // Keep verdict refresh and renderer refresh together. Viewer caches are
-            // invalidated by the UI trust path; trust alone changes no document artwork.
+            // Keep verdict, validated appearance, and renderer refresh together. Trust changes
+            // only the in-memory display copy; the signed working bytes remain untouched.
             let signatures = if doc.signatures.is_empty() { Vec::new() } else { signatures_of(&editor.cos, &doc.bytes, &doc.trust, &doc.sig_cache) };
-            doc.display = display_bytes(Some(editor), &doc.bytes);
+            doc.display = display_bytes(Some(editor), &doc.bytes, &signatures);
             doc.signatures = Arc::new(signatures);
             doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), display_config(&doc.config));
         }
